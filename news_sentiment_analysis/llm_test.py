@@ -1,8 +1,8 @@
-from ollama import chat
-from ollama import ChatResponse
+import sys
 import json
 import pandas as pd
 from tqdm import tqdm
+from ollama import chat, ChatResponse
 
 PROMPT = """
 任务说明：
@@ -29,19 +29,9 @@ def call_llm(text, PROMPT):
                                       },
                                   ],
                                   options={"stop": ["\n", "这", "该", "从", "本", "跟", "以"],
-                                           "temperature":0.1})
+                                           "temperature": 0.1})
     res = response['message']['content']
     return res
-
-
-# 读取CSV文件
-file_path = r'2019.csv'
-output_file_prefix = 'results_batch_'  # 输出文件前缀
-final_file = '2024_with_sentiment_rg_7b.xlsx'
-batch_size = 100  # 每多少条记录保存一次
-
-# 读个CSV文件
-df = pd.read_csv(file_path)
 
 def extract_segments(text, segment_length=800):
     """
@@ -69,44 +59,69 @@ def extract_segments(text, segment_length=800):
     combined_text = f"{start_segment} [MID] {middle_segment} [END] {end_segment}"
     return combined_text
 
-# 应用函数到符合条件的行
-over_4000_count = (df['NewsContent'].str.len() > 2500).sum()
-print(f"超过4000字的行数: {over_4000_count}")
-# 找出所有NewsContent超过4000字符的行，并用提取的片段替换
-mask = df['NewsContent'].str.len() > 2500
-df.loc[mask, 'NewsContent'] = df.loc[mask, 'NewsContent'].apply(extract_segments)
+def main(input_file):
+    # 提取年份用于生成输出文件名
+    year = input_file.split('.')[0]
+    output_file_prefix = f'{year}_news_sentiment'
+    final_file = f'{output_file_prefix}.csv'
+    batch_size = 100  # 每多少条记录保存一次
 
+    # 读取CSV文件并处理坏行
+    bad_lines = []
+    def handle_bad_lines(line):
+        bad_lines.append(line)
+        return None
 
-# 初始化进度条
-pbar = tqdm(total=len(df), desc="Processing")
+    df = pd.read_csv(input_file, on_bad_lines=handle_bad_lines)
 
-# 遍历DataFrame中的每一行，并进行情绪分析
-for i, row in df.iterrows():
-    text = row['NewsContent']
-    result = call_llm(text, PROMPT)
+    # 保存坏行到CSV文件
+    if bad_lines:
+        bad_lines_df = pd.DataFrame(bad_lines, columns=df.columns)
+        bad_lines_df.to_csv(f'{year}_badlines.csv', index=False)
+        print(f"Bad lines saved to {year}_badlines.csv")
 
-    # 更新DataFrame中的情绪列
-    df.loc[i, '情绪'] = result
+    # 应用函数到符合条件的行
+    over_4000_count = (df['NewsContent'].str.len() > 2500).sum()
+    print(f"超过4000字的行数: {over_4000_count}")
+    # 找出所有NewsContent超过4000字符的行，并用提取的片段替换
+    mask = df['NewsContent'].str.len() > 2500
+    df.loc[mask, 'NewsContent'] = df.loc[mask, 'NewsContent'].apply(extract_segments)
 
-    # 更新进度条
-    pbar.update(1)
+    # 初始化进度条
+    pbar = tqdm(total=len(df), desc="Processing")
 
-    # 每batch_size次或到达末尾时保存进度
-    if (i + 1) % batch_size == 0 or (i + 1) == len(df):
-        # 创建一个临时的DataFrame来保存当前批次的结果
-        start_index = max(0, i + 1 - batch_size)
-        current_results_df = df.iloc[start_index:i+1].copy()  # 使用iloc获取包含原字段和情绪字段的子集
+    # 遍历DataFrame中的每一行，并进行情绪分析
+    for i, row in df.iterrows():
+        text = row['NewsContent']
+        result = call_llm(text, PROMPT)
 
-        # 保存为CSV文件
-        output_file = f"{output_file_prefix}{start_index + 1}_to_{i + 1}.csv"
-        current_results_df.to_csv(output_file, index_label='Index')
-        print(f"Batch saved: {output_file}")
+        # 更新DataFrame中的情绪列
+        df.loc[i, '情绪'] = result
 
-pbar.close()
+        # 更新进度条
+        pbar.update(1)
 
-# 完成所有处理后，将最终结果保存为Excel文件
-df.to_excel(final_file, index=False)
-print("All data processed and final results saved.")
+        # 每batch_size次或到达末尾时保存进度
+        if (i + 1) % batch_size == 0 or (i + 1) == len(df):
+            # 创建一个临时的DataFrame来保存当前批次的结果
+            start_index = max(0, i + 1 - batch_size)
+            current_results_df = df.iloc[start_index:i+1].copy()  # 使用iloc获取包含原字段和情绪字段的子集
 
+            # 保存为CSV文件
+            output_file = f"{output_file_prefix}_{start_index + 1}_to_{i + 1}.csv"
+            current_results_df.to_csv(output_file, index_label='Index')
+            print(f"Batch saved: {output_file}")
 
+    pbar.close()
 
+    # 完成所有处理后，将最终结果保存为CSV文件
+    df.to_csv(final_file, index=False)
+    print(f"All data processed and final results saved to {final_file}")
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: python llm_test.py <input_file>")
+        sys.exit(1)
+
+    input_file = sys.argv[1]
+    main(input_file)
