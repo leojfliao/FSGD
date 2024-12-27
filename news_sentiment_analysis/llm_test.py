@@ -72,7 +72,7 @@ def main(input_file):
         bad_lines.append(line)
         return None
 
-    df = pd.read_csv(input_file, on_bad_lines=handle_bad_lines)
+    df = pd.read_csv(input_file, on_bad_lines=handle_bad_lines, engine='python', encoding_errors='ignore')
 
     # 保存坏行到CSV文件
     if bad_lines:
