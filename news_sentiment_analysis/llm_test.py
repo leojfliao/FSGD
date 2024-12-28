@@ -74,11 +74,11 @@ def main(input_file):
 
     df = pd.read_csv(input_file, on_bad_lines=handle_bad_lines, engine='python', encoding_errors='ignore')
 
-    # 保存坏行到CSV文件
-    if bad_lines:
-        bad_lines_df = pd.DataFrame(bad_lines, columns=df.columns)
-        bad_lines_df.to_csv(f'{year}_badlines.csv', index=False)
-        print(f"Bad lines saved to {year}_badlines.csv")
+    # # 保存坏行到CSV文件
+    # if bad_lines:
+    #     bad_lines_df = pd.DataFrame(bad_lines, columns=df.columns)
+    #     bad_lines_df.to_csv(f'{year}_badlines.csv', index=False)
+    #     print(f"Bad lines saved to {year}_badlines.csv")
 
     # 应用函数到符合条件的行
     over_4000_count = (df['NewsContent'].str.len() > 2500).sum()
